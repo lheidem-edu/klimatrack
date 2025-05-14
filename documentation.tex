@@ -1,0 +1,146 @@
+\documentclass{article}
+\usepackage{listings}
+
+\title{Projektdokumentation — Raspberry Pi}
+\author{Luca Heidemann}
+\date{Mai 2025}
+
+\begin{document}
+
+\maketitle
+\newpage
+
+\section{Vorbereitung}
+Auf dem Raspberry Pi müssen vorher verschiedene Dinge installiert, aktiviert und eingerichtet werden, damit dieses Projekt möglich ist.
+\subsection{Verbindung mit dem WLAN herstellen}
+Da die Authentifizierung im WLAN in der Schule über Benutzername und Passwort läuft, sind hier zwei Befehle erforderlich, damit die Verbindung erfolgreich hergestellt wird.
+\begin{verbatim}
+    sudo nmcli connection add \
+        type wifi \
+        con-name "DBB-BYOD" \
+        ifname wlan0 \
+        ssid "DBB-BYOD" \
+        wifi-sec.key-mgmt wpa-eap \
+        802-1x.eap ttls \
+        802-1x.phase2-auth mschapv2 \
+        802-1x.identity "heidemann.luca.14462"
+
+    sudo nmcli device wifi connect DBB-BYOD --ask
+\end{verbatim}
+Nach dem zweiten Befehl erscheint die Abfrage nach einem Passwort. Hier muss dasselbe Passwort wie zur Anmeldung an den PCs in der Schule benutzt werden.
+\subsection{Installation PostgreSQL}
+Auf dem Raspberry Pi muss eine PostgreSQL-Datenbank laufen. Diese kann mit dem folgenden Befehl installiert werden:
+\begin{verbatim}
+    sudo apt-get install postgresql
+\end{verbatim}
+Außerdem wird der PostgreSQL-Treiber für Python benötigt.
+\begin{verbatim}
+    sudo apt-get install python3-psycopg2
+\end{verbatim}
+\subsection{Erstellen der benötigten Tabellen}
+Mit dem folgenden Befehl kann man eine Verbindung zur Datenbank auf der Kommandozeile herstellen:
+\begin{verbatim}
+    sudo -u postgres psql
+\end{verbatim}
+Anschließend kann man sich für sein Projekt eine Datenbank und einen Benutzer erstellen. In meinem Fall heißen Datenbank und Benutzer 'klimatrack'.
+\begin{verbatim}
+    create database 'klimatrack';
+    create user 'klimatrack' with encrypted password 'sec';
+    alter database klimatrack owner to klimatrack;
+\end{verbatim}
+Nun kann man direkt eine Verbindung zur erstellten Datenbank herstellen:
+\begin{verbatim}
+    sudo -u postgres psql -d klimatrack
+\end{verbatim}
+Nun erstellt man die benötigte Tabellen, um die Temperaturdaten zu speichern.
+\begin{verbatim}
+    create table temperatur_aufzeichnungen (
+        aufzeichnung_id uuid not null primary key,
+        aufzeichnung_wert real not null,
+        aufzeichnung_zeitpunkt timestamptz not null
+    );
+\end{verbatim}
+Abschließend gibt man dem erstellten Benutzer die vollen Berechtigungen für die Tabelle:
+\begin{verbatim}
+    grant all on all tables in schema public to klimatrack;
+\end{verbatim}
+\subsection{DS18B20 einrichten}
+Damit der Temperatursensor am Raspberry Pi funktioniert, muss folgender Eintrag am Ende der Datei '/boot/firmware/config.txt' hinzugefügt werden:
+\begin{verbatim}
+    dtoverlay=w1-gpio
+\end{verbatim}
+Anschließend muss der Raspberry Pi neu gestartet werden.
+\subsection{Installation Matplotlib zur Diagrammerstellung}
+Damit das Skript in dem E-Mails Diagramme erstellen und einbinden kann, muss folgender Befehl ausgeführt werden:
+\begin{verbatim}
+    sudo apt-get install python3-matplotlib
+\end{verbatim}
+\subsection{Installation Flask zur Web API}
+Außerdem müssen folgende Befehle ausgeführt werden, damit die (bescheidene) Web API funktioniert:
+\begin{verbatim}
+    sudo apt-get install python3-flask python3-flask-cors
+\end{verbatim}
+\subsection{I2C einrichten}
+Damit der QR-Code auf dem Display angezeigt werden kann, muss zuerst die I2C-Schnittstelle über folgenden Befehl aktiviert werden:
+\begin{verbatim}
+    sudo apt-get install i2c-tools
+    sudo raspi-config
+\end{verbatim}
+Dort navigiert man nach '3 Interface Options', 'I5 I2C' und bestätigt den Dialog mit 'Yes'. Anschließend muss der Raspberry Pi erneut neu gestartet werden.
+Nun mit folgendem Befehl prüfen, ob das Display erkannt wird:
+\begin{verbatim}
+    $ sudo i2cdetect -y 1
+     0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f
+    00:                         -- -- -- -- -- -- -- -- 
+    10: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+    20: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+    30: -- -- -- -- -- -- -- -- -- -- -- -- 3c -- -- -- 
+    40: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+    50: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+    60: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+    70: -- -- -- -- -- -- -- --
+\end{verbatim}
+\subsection{SSD1306 einrichten}
+Damit man nun in Python mit dem Display interagieren kann, ist es notwendig, foglende Befehle auszuführen:
+\begin{verbatim}
+    sudo apt-get install python3-luma.oled
+\end{verbatim}
+\subsection{Bibliotheken für QR-Code-Generierung installieren}
+Folgende Befehle müssen ausgeführt werden, damit die Erzeugung des QR-Codes für das Display einwandfrei funktioniert:
+\begin{verbatim}
+    sudo apt-get install python3-netifaces python3-pil python3-qrcode
+\end{verbatim}
+\section{Auslesen der Werte und Füllen der Datenbank}
+Verantwortlich für das Auslesen der Werte des Temperatursensors ist die Datei 'write\_temperature\_to\_database.py'. Diese liest die Werte des Temperatursensors alle fünf Sekunden aus und schreibt diese in die Datenbank.
+Das passiert auch nach einem Neustart automatisch durch folgenden Eintrag im Crontab, welcher mit folgendem Befehl bearbeitet werden kann:
+\begin{verbatim}
+    crontab -e
+\end{verbatim}
+Dort muss am Ende der Datei folgender Eintrag hinzugefügt werden:
+\begin{verbatim}
+    @reboot ~/klimatrack/write_temperature_to_database.py
+\end{verbatim}
+\section{Verschicken der Werte per E-Mail bei Tastendruck}
+Verantwortlich für das Versenden der E-Mails bei Tastendruck ist die Datei 'send\_email\_on\_button\_click.py'. Diese sendet, sobald der Knopf gedrückt wurde, eine E-Mail mit den Statistiken der letzten 24 Stunden.
+Damit auch dies nach einem Neustart wieder funktioniert, muss auch hierfür ein neuer Eintrag zum Crontab hinzugefügt werden:
+\begin{verbatim}
+    @reboot ~/klimatrack/send_email_on_button_click.py
+\end{verbatim}
+Wichtig hierbei ist, dass frühstens 60 Sekunden nach der letzten E-Mail eine neue verschickt werden kann. Das hat den Grund, dass sonst möglicherweise mit einem Tastendruck mehrere E-Mails verschickt werden würden.
+\section{Web API}
+Für die Web API auf Port 8080 ist die Datei `simple\_web\_api\_flask.py` verantwortlich. Natürlich wird auch hierfür wieder ein Eintrag zum Crontab hinzugefügt:
+\begin{verbatim}
+    @reboot ~/klimatrack/simple_web_api_flask.py
+\end{verbatim}
+\subsection{GET /}
+Dieser Pfad zeigt ein simples Frontend (ähnlich der E-Mail) an, auf welchem man die aktuellen Temperaturdaten anzeigen kann.
+\subsection{GET /api/v1/temperatur\_aufzeichnungen}
+Dieser Pfad gibt die Temperaturdaten der letzten 24 Stunden als JSON aus.
+\section{QR-Code als einfacher Verweis zum Dashboard}
+Damit der Aufruf der Web API so einfach wie möglich ist, wird dem Benutzer auf dem OLED-Display ein QR-Code angezeigt, welchen er nur noch scannen muss, um die Weboberfläche zu öffnen. Auch hier darf der Eintrag im Crontab nicht fehlen:
+\begin{verbatim}
+    @reboot ~/klimatrack/display_qr_web_api.py
+\end{verbatim}
+\section{Abschluss}
+Nach einem Neustart sollten nun alle Komponenten laufen und zur Verfügung stehen.
+\end{document}
