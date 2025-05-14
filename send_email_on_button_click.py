@@ -273,7 +273,7 @@ def main() -> None:
     Main function that runs the program.
     """
     try:
-        print("KlimaTrack E-Mail-Dienst gestartet. Warte auf Button-Klick...")
+        print("E-Mail-Dienst gestartet. Warte auf Button-Klick...")
         while True:
             button_state = gpio.input(17)
             if button_state == gpio.LOW:
@@ -284,7 +284,7 @@ def main() -> None:
                 if temperature_records_with_timestamps:
                     print(f"Daten gefunden. Sende E-Mail mit {len(temperature_records_with_timestamps)} Temperaturwerten...")
                     
-                    subject = "KlimaTrack Temperaturbericht"
+                    subject = "Temperaturbericht"
                     body = "Diese E-Mail sollte im HTML-Format angezeigt werden."
                     
                     send_email(subject, body, temperature_records_with_timestamps)
